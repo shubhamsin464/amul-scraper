@@ -33,27 +33,24 @@ async def check_availability(url: str, pincode: str) -> bool:
                 except Exception as e:
                     logger.warning(f"Could not complete pincode entry for {pincode}. Error: {e}")
             
-            # Wait briefly to ensure the page refreshes after selecting the pincode
-            await page.wait_for_timeout(5000)
-            
-            # Read all visible text on the page
-            page_text = await page.locator("body").inner_text()
-            page_text_lower = page_text.lower()
-            
-            # Common out-of-stock phrases
-            out_of_stock_phrases = ["out of stock", "sold out", "currently unavailable", "not available"]
-            
-            is_available = True
-            for phrase in out_of_stock_phrases:
-                if phrase in page_text_lower:
-                    is_available = False
-                    logger.info(f"Found negative phrase '{phrase}'. Product is UNAVAILABLE.")
-                    break
-            
-            if is_available:
-                logger.info("No negative phrases found. Product is assumed AVAILABLE.")
+            # Instead of searching the whole page (which triggers false positives on 'Related Products'),
+            # we directly check the main 'Add to Cart' button.
+            try:
+                # Wait briefly to ensure button state is updated
+                await page.wait_for_timeout(2000)
+                add_btn = page.locator(".add-to-cart").first
+                await add_btn.wait_for(state="visible", timeout=10000)
                 
-            return is_available
+                is_disabled = await add_btn.evaluate("el => el.hasAttribute('disabled') or el.classList.contains('disabled')")
+                if is_disabled:
+                    logger.info("Add to Cart button is disabled. Product is UNAVAILABLE.")
+                    is_available = False
+                else:
+                    logger.info("Add to Cart button is active! Product is AVAILABLE.")
+                    is_available = True
+            except Exception as e:
+                logger.warning(f"Could not find or check the Add to Cart button. Assuming UNAVAILABLE. Error: {e}")
+                is_available = False
 
         except Exception as e:
             logger.error(f"Error checking availability for {url}: {e}")

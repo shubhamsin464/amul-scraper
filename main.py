@@ -5,7 +5,7 @@ from datetime import datetime
 
 from core import database
 from core.config import settings
-from core.notifier import send_whatsapp_alert
+from core.notifier import send_whatsapp_alert, send_discord_alert
 from web.main import app as fastapi_app
 from monitor.scraper import check_availability
 
@@ -44,12 +44,20 @@ async def process_availability(product, pincode):
         if became_available:
             logger.info(f"ALERT! {product['name']} is available at {pincode['pincode']}")
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            await send_whatsapp_alert(
-                product_name=product['name'],
-                product_url=product['url'],
-                pincode=pincode['pincode'],
-                timestamp=timestamp
-            )
+            if settings.discord_webhook_url:
+                await send_discord_alert(
+                    product_name=product['name'],
+                    product_url=product['url'],
+                    pincode=pincode['pincode'],
+                    timestamp=timestamp
+                )
+            elif settings.whatsapp_phone_number:
+                await send_whatsapp_alert(
+                    product_name=product['name'],
+                    product_url=product['url'],
+                    pincode=pincode['pincode'],
+                    timestamp=timestamp
+                )
     except Exception as e:
         logger.error(f"Error processing {product['name']} for {pincode['pincode']}: {e}")
 

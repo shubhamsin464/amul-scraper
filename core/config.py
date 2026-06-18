@@ -4,6 +4,7 @@ from pydantic import Field
 class Settings(BaseSettings):
     whatsapp_phone_number: str = Field(default="")
     whatsapp_apikey: str = Field(default="")
+    discord_webhook_url: str = Field(default="")
     
     poll_interval_seconds: int = 30
     database_path: str = "data/monitor.db"
