@@ -41,7 +41,7 @@ async def check_availability(url: str, pincode: str) -> bool:
                 add_btn = page.locator(".add-to-cart").first
                 await add_btn.wait_for(state="visible", timeout=10000)
                 
-                is_disabled = await add_btn.evaluate("el => el.hasAttribute('disabled') || el.classList.contains('disabled')")
+                is_disabled = await add_btn.evaluate("el => el.getAttribute('disabled') === 'true' || el.classList.contains('disabled')")
                 if is_disabled:
                     logger.info("Add to Cart button is disabled. Product is UNAVAILABLE.")
                     is_available = False
