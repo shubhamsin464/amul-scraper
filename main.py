@@ -21,13 +21,12 @@ async def run_scraper_cycle():
         logger.info("No products or pincodes to check.")
         return
 
-    # Check all product/pincode combinations concurrently
-    tasks = []
+    # Check all product/pincode combinations sequentially to prevent OOM
     for product in products:
         for pincode in pincodes:
-            tasks.append(process_availability(product, pincode))
-            
-    await asyncio.gather(*tasks)
+            await process_availability(product, pincode)
+            # Wait a few seconds between checks to reduce CPU spikes and be polite
+            await asyncio.sleep(2)
     logger.info("Scraper cycle complete.")
 
 async def process_availability(product, pincode):
