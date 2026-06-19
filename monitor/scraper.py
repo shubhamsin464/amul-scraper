@@ -14,63 +14,73 @@ async def check_availability(url: str, pincode: str) -> bool:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context()
         page = await context.new_page()
-        
-        try:
+    Checks if an Amul product is available for a given pincode.
+    Returns True if available, False otherwise.
+    """
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--disable-dev-shm-usage", "--no-sandbox"] # Critical for low-RAM environments like Render
+            )
+            
+            # Force desktop viewport to prevent elements hiding in mobile menus
+            context = await browser.new_context(viewport={'width': 1920, 'height': 1080})
+            page = await context.new_page()
+            
+            # Intercept and block heavy resources to save RAM
+            await page.route("**/*", route_intercept)
+            
             logger.info(f"Navigating to {url}")
-            await page.goto(url, wait_until="networkidle", timeout=30000)
+            await page.goto(url, wait_until="domcontentloaded")
             
-            # Handle the Autocomplete Pincode logic
-            if pincode.lower() not in ["global", "any"]:
-                # Check if the page loaded successfully by looking for the header
-                try:
-                    await page.wait_for_selector('header', timeout=20000)
-                except Exception:
-                    logger.error(f"Page did not load properly (possible Cloudflare block or timeout). Title: {await page.title()}")
-                    return False
-                    
-                # Click the location pin in the header to FORCE the modal to open
-                # This fixes the issue on Render where the modal doesn't auto-open
-                try:
-                    location_btn = page.locator(".pincode_wrap").first
-                    await location_btn.wait_for(state="visible", timeout=10000)
-                    await location_btn.click()
-                    await page.wait_for_timeout(2000) # Give modal time to animate in
-                except Exception as e:
-                    logger.warning(f"Could not click location button: {e}")
-
-                try:
-                    logger.info(f"Typing pincode {pincode} into #search")
-                    await page.fill("#search", pincode, timeout=15000)
-                    
-                    # Wait for the specific autocomplete <p> tag to appear and click it
-                    dropdown_item = page.locator(f"p:has-text('{pincode}')").first
-                    await dropdown_item.wait_for(state="visible", timeout=5000)
-                    await dropdown_item.click()
-                    logger.info(f"Clicked autocomplete dropdown for {pincode}")
-                except Exception as e:
-                    logger.warning(f"Could not complete pincode entry for {pincode}. Error: {e}")
-            
-            # Instead of searching the whole page (which triggers false positives on 'Related Products'),
-            # we directly check the main 'Add to Cart' button.
             try:
-                # Wait briefly to ensure button state is updated
-                await page.wait_for_timeout(2000)
-                add_btn = page.locator(".add-to-cart").first
-                await add_btn.wait_for(state="visible", timeout=10000)
+                logger.info("Opening location modal via JS injection")
+                # Force click via JS to bypass Playwright visibility checks
+                await page.evaluate('document.querySelector(".pincode_wrap").click()')
+                await page.wait_for_timeout(1500)
                 
-                is_disabled = await add_btn.evaluate("el => el.getAttribute('disabled') === 'true' || el.classList.contains('disabled')")
-                if is_disabled:
-                    logger.info("Add to Cart button is disabled. Product is UNAVAILABLE.")
-                    is_available = False
-                else:
-                    logger.info("Add to Cart button is active! Product is AVAILABLE.")
-                    is_available = True
+                logger.info(f"Filling pincode: {pincode}")
+                await page.fill('#search', pincode)
+                
+                logger.info("Waiting for pincode dropdown suggestion")
+                await page.wait_for_selector(f'p:has-text("{pincode}")', timeout=15000)
+                
+                logger.info("Clicking pincode suggestion via JS injection")
+                await page.evaluate(f'''
+                    const el = Array.from(document.querySelectorAll("p")).find(e => e.textContent.includes("{pincode}"));
+                    if (el) el.click();
+                ''')
+                
+                # Wait for the page to refresh/update stock status
+                await page.wait_for_timeout(4000)
+                
             except Exception as e:
-                logger.warning(f"Could not find or check the Add to Cart button. Assuming UNAVAILABLE. Error: {e}")
-                is_available = False
-
-        except Exception as e:
-            logger.error(f"Error checking availability for {url}: {e}")
-            return False
-        finally:
-            await browser.close()
+                logger.error(f"UI interaction failed (modal might be blocked or changed): {e}")
+                # We do not return False immediately, we try to read the button anyway.
+                
+            # Check availability button
+            try:
+                add_btn = page.locator(".add-to-cart").first
+                await add_btn.wait_for(timeout=15000)
+                
+                # Extremely resilient check: looking explicitly for "disabled" class or true disabled attribute
+                is_disabled = await add_btn.evaluate("el => el.classList.contains('disabled') || el.getAttribute('disabled') === 'true'")
+                
+                if is_disabled:
+                    logger.info(f"Product is UNAVAILABLE (button is disabled).")
+                    return False
+                else:
+                    logger.info(f"Product is AVAILABLE (button is active).")
+                    return True
+                    
+            except Exception as e:
+                logger.warning(f"Add to Cart button not found, assuming unavailable. Error: {e}")
+                return False
+                
+            finally:
+                await browser.close()
+                
+    except Exception as e:
+        logger.error(f"Fatal error checking availability: {e}")
+        return False
