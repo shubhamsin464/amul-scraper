@@ -21,9 +21,26 @@ async def check_availability(url: str, pincode: str) -> bool:
             
             # Handle the Autocomplete Pincode logic
             if pincode.lower() not in ["global", "any"]:
+                # Check if the page loaded successfully by looking for the header
+                try:
+                    await page.wait_for_selector('header', timeout=20000)
+                except Exception:
+                    logger.error(f"Page did not load properly (possible Cloudflare block or timeout). Title: {await page.title()}")
+                    return False
+                    
+                # Click the location pin in the header to FORCE the modal to open
+                # This fixes the issue on Render where the modal doesn't auto-open
+                try:
+                    location_btn = page.locator(".pincode_wrap").first
+                    await location_btn.wait_for(state="visible", timeout=10000)
+                    await location_btn.click()
+                    await page.wait_for_timeout(2000) # Give modal time to animate in
+                except Exception as e:
+                    logger.warning(f"Could not click location button: {e}")
+
                 try:
                     logger.info(f"Typing pincode {pincode} into #search")
-                    await page.fill("#search", pincode, timeout=5000)
+                    await page.fill("#search", pincode, timeout=15000)
                     
                     # Wait for the specific autocomplete <p> tag to appear and click it
                     dropdown_item = page.locator(f"p:has-text('{pincode}')").first
