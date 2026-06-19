@@ -5,15 +5,14 @@ from core.config import settings
 
 logger = logging.getLogger(__name__)
 
+async def route_intercept(route):
+    if route.request.resource_type in ["image", "stylesheet", "font", "media"]:
+        await route.abort()
+    else:
+        await route.continue_()
+
 async def check_availability(url: str, pincode: str) -> bool:
     """
-    Navigates to the product URL, enters the pincode in the #search box, 
-    selects it from the autocomplete dropdown, and checks the page text.
-    """
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context()
-        page = await context.new_page()
     Checks if an Amul product is available for a given pincode.
     Returns True if available, False otherwise.
     """
